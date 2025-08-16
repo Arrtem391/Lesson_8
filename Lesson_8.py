@@ -1,15 +1,19 @@
 import json
-import requests
-import folium
-from geopy.distance import geodesic
-from dotenv import load_dotenv
 import os
+from geopy.distance import geodesic
 
-load_dotenv()
+import folium
+import requests
+from dotenv import load_dotenv
+
+
+COFFEE_SHOPS_FILE = "coffee.json"
+MAP_FILE = "coffee_map.html"
+YANDEX_GEOCODE_API_URL = "https://geocode-maps.yandex.ru/1.x"
+
 
 def fetch_coordinates(apikey, address):
-    base_url = "https://geocode-maps.yandex.ru/1.x"
-    response = requests.get(base_url, params={
+    response = requests.get(YANDEX_GEOCODE_API_URL, params={
         "geocode": address,
         "apikey": apikey,
         "format": "json",
@@ -25,20 +29,12 @@ def fetch_coordinates(apikey, address):
     return float(lat), float(lon)
 
 
-with open(r"coffee.json", "r", encoding='utf-8') as my_file:
-    file_contents = my_file.read()
-
-coffee_data = json.loads(file_contents)
-
-
-place = input('Где Вы находитесь? ')
-apikey = os.getenv('api')
-user_coords = fetch_coordinates(apikey, place)
+def load_coffee_shops_data(file_path):
+    with open(file_path, "r", encoding='utf-8') as my_file:
+        return json.loads(my_file.read())
 
 
-if not user_coords:
-    print("Не удалось определить координаты указанного места.")
-else:
+def calculate_distances(user_coords, coffee_data):
     coffee_shops = []
     for shop in coffee_data:
         try:
@@ -52,9 +48,10 @@ else:
             })
         except (ValueError, KeyError):
             continue
+    return sorted(coffee_shops, key=lambda x: x['distance_km'])[:5]
 
-    coffee_shops_sorted = sorted(coffee_shops, key=lambda x: x['distance_km'])[:5]
 
+def create_map(user_coords, coffee_shops):
     m = folium.Map(location=user_coords, zoom_start=14)
 
     folium.Marker(
@@ -63,7 +60,7 @@ else:
         icon=folium.Icon(color='red', icon='user')
     ).add_to(m)
 
-    for shop in coffee_shops_sorted:
+    for shop in coffee_shops:
         folium.Marker(
             location=shop['coordinates'],
             popup=f"{shop['name']}<br>{shop['address']}<br>Расстояние: {shop['distance_km']} км",
@@ -88,4 +85,27 @@ else:
         popup='1 км'
     ).add_to(m)
 
-    m.save('coffee_map.html')
+    return m
+
+
+def main():
+    load_dotenv()
+    
+    place = input('Где Вы находитесь? ')
+    apikey = os.getenv('api')
+    
+    user_coords = fetch_coordinates(apikey, place)
+    if not user_coords:
+        print("Не удалось определить координаты указанного места.")
+        return
+
+    coffee_data = load_coffee_shops_data(COFFEE_SHOPS_FILE)
+    nearest_coffee_shops = calculate_distances(user_coords, coffee_data)
+    
+    coffee_map = create_map(user_coords, nearest_coffee_shops)
+    coffee_map.save(MAP_FILE)
+    print(f"Карта сохранена в файл {MAP_FILE}")
+
+
+if __name__ == "__main__":
+    main()
